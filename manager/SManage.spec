@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('F:\\ChromiumSoncuto\\manager\\profiles.py', '.'), ('F:\\ChromiumSoncuto\\manager\\fingerprint.py', '.'), ('F:\\ChromiumSoncuto\\manager\\fingerprint_utils.py', '.'), ('F:\\ChromiumSoncuto\\manager\\browser_launcher.py', '.'), ('F:\\ChromiumSoncuto\\manager\\playwright_attach.py', '.'), ('F:\\ChromiumSoncuto\\manager\\app_meta.py', '.')]
+datas = [('F:\\ChromiumSoncuto\\manager\\profiles.py', '.'), ('F:\\ChromiumSoncuto\\manager\\fingerprint.py', '.'), ('F:\\ChromiumSoncuto\\manager\\fingerprint_utils.py', '.'), ('F:\\ChromiumSoncuto\\manager\\browser_launcher.py', '.'), ('F:\\ChromiumSoncuto\\manager\\playwright_attach.py', '.'), ('F:\\ChromiumSoncuto\\manager\\runtime_manager.py', '.'), ('F:\\ChromiumSoncuto\\manager\\app_meta.py', '.')]
 binaries = []
-hiddenimports = ['customtkinter', 'PIL', 'app_meta', 'fingerprint_utils', 'playwright_attach']
+hiddenimports = ['customtkinter', 'PIL', 'app_meta', 'fingerprint_utils', 'playwright_attach', 'runtime_manager']
 tmp_ret = collect_all('customtkinter')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 

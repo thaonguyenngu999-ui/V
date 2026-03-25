@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -223,18 +224,18 @@ def build_exe():
     return True
 
 
-def package_release():
+def package_release(include_browser: bool = True, release_name: str | None = None, folder_name: str | None = None):
     """Create final release package"""
     log_phase("Creating release package...")
 
-    release_dir = OUTPUT_DIR / "SManage-Release"
+    release_dir = OUTPUT_DIR / (folder_name or "SManage-Release")
     release_dir.mkdir(exist_ok=True)
 
     exe_dir = OUTPUT_DIR / "SManage"
     if exe_dir.exists():
         copytree_with_progress(exe_dir, release_dir / "manager", "Copy EXE")
 
-    if BROWSER_DIR.exists():
+    if include_browser and BROWSER_DIR.exists():
         log_phase("Copying browser files into release package...")
         copytree_with_progress(BROWSER_DIR, release_dir / "browser", "Copy browser")
 
@@ -256,6 +257,12 @@ start SManage.exe
 """
     (release_dir / "Start SManage.bat").write_text(launcher, encoding="utf-8")
 
+    runtime_note = (
+        "Browser runtime is bundled locally in the browser folder."
+        if include_browser
+        else "Browser runtime is downloaded on first launch from the configured manifest URL."
+    )
+
     readme = f"""# {APP_NAME} - Antidetect Browser Manager
 
 ## Quick Start
@@ -268,10 +275,14 @@ start SManage.exe
 - Playwright attach helper and sample smoke test
 - Proxy support (HTTP/SOCKS5)
 - CDP endpoint export with custom port support
+- Cloud runtime download with progress UI
 
 ## Requirements
 - Windows 10/11 64-bit
 - 4GB RAM minimum
+
+## Runtime
+{runtime_note}
 
 ## Version
 {APP_VERSION_LABEL}
@@ -279,7 +290,7 @@ start SManage.exe
     (release_dir / "README.txt").write_text(readme, encoding="utf-8")
 
     log_phase(f"Release package created: {release_dir}")
-    zip_path = OUTPUT_DIR / f"{RELEASE_NAME}.zip"
+    zip_path = OUTPUT_DIR / f"{release_name or RELEASE_NAME}.zip"
     if zip_path.exists():
         zip_path.unlink()
     log_phase("Creating ZIP archive with progress...")
@@ -288,12 +299,12 @@ start SManage.exe
     return True
 
 
-def create_portable():
+def create_portable(include_browser: bool = True, folder_name: str | None = None):
     """Create portable version (no exe, just Python scripts)"""
     log_phase("Creating portable version...")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    portable_dir = OUTPUT_DIR / "SManage-Portable"
+    portable_dir = OUTPUT_DIR / (folder_name or "SManage-Portable")
     portable_dir.mkdir(exist_ok=True)
 
     manager_dest = portable_dir / "manager"
@@ -309,7 +320,7 @@ def create_portable():
         if src.exists():
             shutil.copy(src, portable_dir)
 
-    if BROWSER_DIR.exists():
+    if include_browser and BROWSER_DIR.exists():
         copytree_with_progress(BROWSER_DIR, portable_dir / "browser", "Copy portable browser")
 
     launcher = """@echo off
@@ -338,6 +349,14 @@ pause
 
 
 def main():
+    parser = argparse.ArgumentParser(description="S Manage build/package helper")
+    parser.add_argument("--mode", choices=["exe", "portable", "both"], default=None)
+    parser.add_argument("--cloud-runtime", action="store_true", help="Do not bundle browser runtime into release")
+    parser.add_argument("--release-name", default=None, help="Override ZIP release base name")
+    parser.add_argument("--release-folder", default=None, help="Override release folder name")
+    parser.add_argument("--portable-folder", default=None, help="Override portable folder name")
+    args = parser.parse_args()
+
     print("=" * 50)
     print("  S Manage - Build & Package Script")
     print("=" * 50)
@@ -346,27 +365,29 @@ def main():
     print(f"Manager: {MANAGER_DIR}")
     print(f"Browser: {BROWSER_DIR}")
 
-    print("\nOptions:")
-    print("1. Build EXE (PyInstaller)")
-    print("2. Create Portable (Python scripts)")
-    print("3. Both")
+    include_browser = not args.cloud_runtime
 
-    choice = input("\nSelect [1/2/3]: ").strip()
-
-    if choice == "1":
-        check_requirements()
-        build_exe()
-        package_release()
-    elif choice == "2":
-        create_portable()
-    elif choice == "3":
-        check_requirements()
-        build_exe()
-        package_release()
-        create_portable()
+    if args.mode is None:
+        print("\nOptions:")
+        print("1. Build EXE (PyInstaller)")
+        print("2. Create Portable (Python scripts)")
+        print("3. Both")
+        choice = input("\nSelect [1/2/3]: ").strip()
+        mode = {"1": "exe", "2": "portable", "3": "both"}.get(choice, "portable")
     else:
-        log_phase("Creating portable version...")
-        create_portable()
+        mode = args.mode
+
+    if mode == "exe":
+        check_requirements()
+        build_exe()
+        package_release(include_browser=include_browser, release_name=args.release_name, folder_name=args.release_folder)
+    elif mode == "portable":
+        create_portable(include_browser=include_browser, folder_name=args.portable_folder)
+    elif mode == "both":
+        check_requirements()
+        build_exe()
+        package_release(include_browser=include_browser, release_name=args.release_name, folder_name=args.release_folder)
+        create_portable(include_browser=include_browser, folder_name=args.portable_folder)
 
     log_phase("Done")
     print(f"Output: {OUTPUT_DIR}")
