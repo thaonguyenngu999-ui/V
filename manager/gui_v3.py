@@ -5162,16 +5162,25 @@ def _startup_refresh_runtime_status(self):
         body = f"Installed {version}. Cloud has {remote_version}. Browser can be updated with one click."
         button_text = "Update Runtime"
         button_color = COLORS["warning"]
+        continue_text = "Continue to Manager"
     elif installed:
         title = "Runtime installed"
-        body = f"Browser runtime is ready at {status.get('browser_path', '')}"
+        body = (
+            f"Browser runtime is ready at {status.get('browser_path', '')}\n"
+            "This download only happens once. Next launches go straight into the manager."
+        )
         button_text = "Reinstall Runtime"
         button_color = COLORS["info"]
+        continue_text = "Continue to Manager"
     else:
         title = "Runtime missing"
-        body = "Browser runtime is not installed yet. Tool can download it from the manifest source."
+        body = (
+            "Browser runtime is not installed yet. Click Continue and setup will download it once, "
+            "then reuse it on future launches."
+        )
         button_text = "Download Runtime"
         button_color = COLORS["accent"]
+        continue_text = "Install and Continue"
 
     if error:
         body = f"{body}\nManifest check: {error}"
@@ -5179,6 +5188,7 @@ def _startup_refresh_runtime_status(self):
     self.runtime_status_title.configure(text=title)
     self.runtime_status_body.configure(text=body)
     self.download_btn.configure(text=button_text, fg_color=button_color)
+    self.continue_btn.configure(text=continue_text)
 
 
 def _startup_finalize_continue(self, path: str):
@@ -5258,7 +5268,7 @@ def _startup_browse_manifest(self):
 
 
 def _startup_create_widgets_v2(self):
-    self.geometry("760x520")
+    self.geometry("780x600")
     self.resizable(False, False)
     self.configure(fg_color=COLORS["bg_dark"])
     for child in self.winfo_children():
@@ -5266,9 +5276,11 @@ def _startup_create_widgets_v2(self):
 
     shell = ctk.CTkFrame(self, fg_color=COLORS["bg_panel"], corner_radius=18, border_width=1, border_color=COLORS["border"])
     shell.pack(fill="both", expand=True, padx=20, pady=20)
+    shell.grid_rowconfigure(1, weight=1)
+    shell.grid_columnconfigure(0, weight=1)
 
     head = ctk.CTkFrame(shell, fg_color="transparent")
-    head.pack(fill="x", padx=24, pady=(22, 14))
+    head.grid(row=0, column=0, sticky="ew", padx=24, pady=(18, 10))
     ctk.CTkLabel(head, text="S Manage Setup", font=ctk.CTkFont(size=30, weight="bold")).pack(anchor="w")
     ctk.CTkLabel(
         head,
@@ -5278,9 +5290,10 @@ def _startup_create_widgets_v2(self):
     ).pack(anchor="w", pady=(4, 0))
 
     grid = ctk.CTkFrame(shell, fg_color="transparent")
-    grid.pack(fill="both", expand=True, padx=24, pady=(0, 16))
+    grid.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 10))
     grid.grid_columnconfigure(0, weight=7)
     grid.grid_columnconfigure(1, weight=6)
+    grid.grid_rowconfigure(0, weight=1)
 
     left = ctk.CTkFrame(grid, fg_color=COLORS["bg_card"], corner_radius=16, border_width=1, border_color=COLORS["border"])
     left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
@@ -5301,7 +5314,24 @@ def _startup_create_widgets_v2(self):
         font=ctk.CTkFont(size=11),
         text_color=COLORS["text_muted"],
         justify="left",
+        wraplength=300,
     ).pack(anchor="w", padx=18, pady=(4, 0))
+
+    left_hint = ctk.CTkFrame(left, fg_color="#18222e", corner_radius=12, border_width=1, border_color=COLORS["border"])
+    left_hint.pack(fill="x", padx=18, pady=(18, 18))
+    ctk.CTkLabel(
+        left_hint,
+        text="First launch flow",
+        font=ctk.CTkFont(size=13, weight="bold"),
+    ).pack(anchor="w", padx=14, pady=(12, 4))
+    ctk.CTkLabel(
+        left_hint,
+        text="1. Pick a profiles folder\n2. Continue\n3. Browser downloads once\n4. Next launch skips this download",
+        justify="left",
+        wraplength=300,
+        font=ctk.CTkFont(size=11),
+        text_color=COLORS["text_muted"],
+    ).pack(anchor="w", padx=14, pady=(0, 12))
 
     ctk.CTkLabel(right, text="Browser Runtime", font=ctk.CTkFont(size=14, weight="bold"), text_color=COLORS["text_muted"]).pack(anchor="w", padx=18, pady=(16, 8))
     ctk.CTkLabel(right, text="Manifest URL", font=ctk.CTkFont(size=13)).pack(anchor="w", padx=18)
@@ -5316,7 +5346,7 @@ def _startup_create_widgets_v2(self):
     status_card.pack(fill="x", padx=18, pady=(8, 12))
     self.runtime_status_title = ctk.CTkLabel(status_card, text="Checking runtime...", font=ctk.CTkFont(size=15, weight="bold"))
     self.runtime_status_title.pack(anchor="w", padx=14, pady=(12, 4))
-    self.runtime_status_body = ctk.CTkLabel(status_card, text="", justify="left", wraplength=260, font=ctk.CTkFont(size=11), text_color=COLORS["text_muted"])
+    self.runtime_status_body = ctk.CTkLabel(status_card, text="", justify="left", wraplength=250, font=ctk.CTkFont(size=11), text_color=COLORS["text_muted"])
     self.runtime_status_body.pack(anchor="w", padx=14, pady=(0, 12))
 
     self.runtime_progress = ctk.CTkProgressBar(right, height=10, progress_color=COLORS["accent"])
@@ -5330,13 +5360,31 @@ def _startup_create_widgets_v2(self):
     self.download_btn = ctk.CTkButton(btn_row, text="Download Runtime", height=38, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], command=self._download_runtime)
     self.download_btn.pack(side="left", padx=(8, 0))
 
+    ctk.CTkLabel(
+        right,
+        text="Runtime download is cached locally. You only download again when you click update or reinstall.",
+        font=ctk.CTkFont(size=11),
+        text_color=COLORS["text_muted"],
+        justify="left",
+        wraplength=290,
+    ).pack(anchor="w", padx=18, pady=(2, 10))
+
     self.status_line = ctk.CTkLabel(shell, text="Setup waits for a valid browser runtime before entering the manager.", font=ctk.CTkFont(size=11), text_color=COLORS["text_muted"])
-    self.status_line.pack(fill="x", padx=24, pady=(0, 12))
+    self.status_line.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 8))
 
     footer = ctk.CTkFrame(shell, fg_color="transparent")
-    footer.pack(fill="x", padx=24, pady=(0, 20))
+    footer.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 18))
     ctk.CTkButton(footer, text="Exit", width=96, height=42, fg_color="#223244", hover_color="#2e465f", command=self.destroy).pack(side="right")
-    self.continue_btn = ctk.CTkButton(footer, text="Continue", width=138, height=42, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], command=self._continue)
+    self.continue_btn = ctk.CTkButton(
+        footer,
+        text="Continue to Manager",
+        width=190,
+        height=48,
+        fg_color=COLORS["accent"],
+        hover_color=COLORS["accent_hover"],
+        font=ctk.CTkFont(size=15, weight="bold"),
+        command=self._continue,
+    )
     self.continue_btn.pack(side="right", padx=(0, 10))
 
     self._runtime_busy = False
