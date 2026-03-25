@@ -1,0 +1,234 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ChromiumSoncuto <chromiumsoncuto@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0700
+Subject: [PATCH 005/006] Audio fingerprint noise injection
+
+Apply subtle, consistent noise to AudioContext operations to prevent
+audio fingerprinting while maintaining audio quality.
+
+---
+ third_party/blink/renderer/modules/webaudio/audio_context.cc | 80 +++++++++++++
+ third_party/blink/renderer/modules/webaudio/analyser_node.cc | 60 ++++++++++
+ third_party/blink/renderer/modules/webaudio/oscillator_node.cc | 40 ++++++
+ third_party/blink/renderer/modules/webaudio/offline_audio_context.cc | 50 ++++++++
+ 4 files changed, 230 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/webaudio/audio_context.cc b/third_party/blink/renderer/modules/webaudio/audio_context.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/modules/webaudio/audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/audio_context.cc
+@@ -10,6 +10,10 @@
+ #include "third_party/blink/renderer/modules/webaudio/audio_destination_node.h"
+ #include "third_party/blink/renderer/platform/audio/audio_utilities.h"
+ 
++// ChromiumSoncuto: Include audio spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/audio_spoof.h"
++
+ namespace blink {
+ 
+ AudioContext* AudioContext::Create(Document& document,
+@@ -20,6 +24,25 @@ AudioContext* AudioContext::Create(Document& document,
+ }
+ 
+ float AudioContext::sampleRate() const {
++  // ChromiumSoncuto: Return spoofed sample rate
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->audio.enabled) {
++      return profile->audio.sample_rate;
++    }
++  }
++
+   return destination()->context()->sampleRate();
+ }
+
+@@ -30,6 +53,15 @@ double AudioContext::currentTime() const {
+ }
+ 
+ double AudioContext::baseLatency() const {
++  // ChromiumSoncuto: Return spoofed base latency with slight noise
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->audio.enabled) {
++      return profile->audio.base_latency;
++    }
++  }
++
+   return GetOutputLatency(kBaseLatency);
+ }
+ 
+@@ -40,6 +72,15 @@ double AudioContext::outputLatency() const {
+ }
+ 
+ unsigned AudioContext::channelCount() const {
++  // ChromiumSoncuto: Return spoofed channel count
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->audio.enabled) {
++      return profile->audio.destination_channel_count;
++    }
++  }
++
+   return destination()->channelCount();
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/webaudio/analyser_node.cc b/third_party/blink/renderer/modules/webaudio/analyser_node.cc
+index abcdefghij..1234567890 100644
+--- a/third_party/blink/renderer/modules/webaudio/analyser_node.cc
++++ b/third_party/blink/renderer/modules/webaudio/analyser_node.cc
+@@ -8,6 +8,10 @@
+ #include "third_party/blink/renderer/modules/webaudio/audio_node_output.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ 
++// ChromiumSoncuto: Include audio spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/audio_spoof.h"
++
+ namespace blink {
+ 
+ AnalyserNode::AnalyserNode(BaseAudioContext& context)
+@@ -20,6 +24,22 @@ void AnalyserNode::getFloatFrequencyData(NotShared<DOMFloat32Array> array) {
+   if (array->length() < FrequencyBinCount())
+     return;
+ 
++  // ChromiumSoncuto: Apply noise to frequency data
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->audio.enabled) {
++      // Get the data first
++      analyser_handler_.GetFloatFrequencyData(array->Data(), array->length());
++      
++      // Apply noise
++      chromiumsoncuto::audio::AnalyserSpoof::ModifyFloatFrequencyData(
++          array->Data(), array->length());
++      
++      return;
++    }
++  }
++
+   analyser_handler_.GetFloatFrequencyData(array->Data(), array->length());
+ }
+ 
+@@ -27,6 +47,21 @@ void AnalyserNode::getByteFrequencyData(NotShared<DOMUint8Array> array) {
+   if (array->length() < FrequencyBinCount())
+     return;
+ 
++  // ChromiumSoncuto: Apply noise to byte frequency data
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->audio.enabled) {
++      // Get the data first
++      analyser_handler_.GetByteFrequencyData(array->Data(), array->length());
++      
++      // Apply noise
++      chromiumsoncuto::audio::AnalyserSpoof::ModifyByteFrequencyData(
++          array->Data(), array->length());
++      
++      return;
++    }
++  }
++
+   analyser_handler_.GetByteFrequencyData(array->Data(), array->length());
+ }
+ 
+@@ -34,6 +69,16 @@ void AnalyserNode::getFloatTimeDomainData(NotShared<DOMFloat32Array> array) {
+   if (array->length() < fftSize())
+     return;
+ 
++  // ChromiumSoncuto: Apply noise to time domain data
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->audio.enabled) {
++      analyser_handler_.GetFloatTimeDomainData(array->Data(), array->length());
++      chromiumsoncuto::audio::AnalyserSpoof::ModifyFloatTimeDomainData(
++          array->Data(), array->length());
++      return;
++    }
++  }
++
+   analyser_handler_.GetFloatTimeDomainData(array->Data(), array->length());
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/webaudio/oscillator_node.cc b/third_party/blink/renderer/modules/webaudio/oscillator_node.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/modules/webaudio/oscillator_node.cc
++++ b/third_party/blink/renderer/modules/webaudio/oscillator_node.cc
+@@ -7,6 +7,10 @@
+ #include "third_party/blink/renderer/modules/webaudio/oscillator_options.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ 
++// ChromiumSoncuto: Include audio spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/audio_spoof.h"
++
+ namespace blink {
+ 
+ OscillatorNode* OscillatorNode::Create(BaseAudioContext& context,
+@@ -25,6 +29,20 @@ OscillatorNode* OscillatorNode::Create(BaseAudioContext& context,
+ }
+ 
+ void OscillatorNode::setFrequency(float frequency) {
++  // ChromiumSoncuto: Apply subtle frequency adjustment for anti-fingerprinting
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->audio.enabled) {
++      // Apply very subtle adjustment that doesn't affect perceived audio
++      double adjusted = chromiumsoncuto::audio::OscillatorSpoof::AdjustFrequency(
++          static_cast<double>(frequency));
++      frequency_->setValue(static_cast<float>(adjusted));
++      return;
++    }
++  }
++
+   frequency_->setValue(frequency);
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+index abcdefghij..1234567890 100644
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -8,6 +8,10 @@
+ #include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
+ #include "third_party/blink/renderer/platform/bindings/script_promise_resolver.h"
+ 
++// ChromiumSoncuto: Include audio spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/audio_spoof.h"
++
+ namespace blink {
+ 
+ OfflineAudioContext* OfflineAudioContext::Create(
+@@ -50,6 +54,25 @@ void OfflineAudioContext::ResolveRenderPromise(AudioBuffer* audio_buffer) {
+   if (!resolver_)
+     return;
+ 
++  // ChromiumSoncuto: Apply noise to rendered audio buffer
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->audio.enabled && audio_buffer) {
++      // Apply noise to each channel
++      for (unsigned i = 0; i < audio_buffer->numberOfChannels(); i++) {
++        NotShared<DOMFloat32Array> channel_data = audio_buffer->getChannelData(i);
++        if (channel_data) {
++          chromiumsoncuto::audio::OfflineAudioContextSpoof::ApplyRenderNoise(
++              channel_data->Data(),
++              channel_data->length());
++        }
++      }
++    }
++  }
++
+   resolver_->Resolve(audio_buffer);
+   resolver_ = nullptr;
+ }
+-- 
+2.34.1

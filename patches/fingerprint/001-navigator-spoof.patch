@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ChromiumSoncuto <chromiumsoncuto@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0700
+Subject: [PATCH 001/006] Spoof navigator properties
+
+Patch navigator object to return spoofed values from fingerprint profile.
+
+---
+ third_party/blink/renderer/core/frame/navigator.cc | 150 +++++++++++++++++++++
+ third_party/blink/renderer/core/frame/navigator.h  |  10 ++
+ 2 files changed, 160 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -10,6 +10,9 @@
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ 
++// ChromiumSoncuto: Include fingerprint controller
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++
+ namespace blink {
+ 
+ Navigator::Navigator(ExecutionContext* context)
+@@ -20,6 +23,15 @@ Navigator::~Navigator() = default;
+ 
+ String Navigator::userAgent() const {
++  // ChromiumSoncuto: Return spoofed user agent
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && !profile->navigator.user_agent.empty()) {
++      return String::FromUTF8(profile->navigator.user_agent);
++    }
++  }
++  
+   if (!GetExecutionContext())
+     return String();
+ 
+@@ -28,6 +40,15 @@ String Navigator::userAgent() const {
+ 
+ String Navigator::platform() const {
++  // ChromiumSoncuto: Return spoofed platform
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && !profile->hardware.platform.empty()) {
++      return String::FromUTF8(profile->hardware.platform);
++    }
++  }
++
+   if (!GetExecutionContext())
+     return String();
+ 
+@@ -36,6 +57,15 @@ String Navigator::platform() const {
+ 
+ String Navigator::vendor() const {
++  // ChromiumSoncuto: Return spoofed vendor
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && !profile->navigator.vendor.empty()) {
++      return String::FromUTF8(profile->navigator.vendor);
++    }
++  }
++
+   return "Google Inc.";
+ }
+ 
+@@ -45,6 +75,15 @@ String Navigator::vendorSub() const {
+ 
+ unsigned Navigator::hardwareConcurrency() const {
++  // ChromiumSoncuto: Return spoofed hardware concurrency
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->hardware.hardware_concurrency;
++    }
++  }
++
+   return HardwareConcurrency::GetHardwareConcurrency();
+ }
+ 
+@@ -52,6 +91,15 @@ unsigned Navigator::hardwareConcurrency() const {
+ 
+ double Navigator::deviceMemory() const {
++  // ChromiumSoncuto: Return spoofed device memory
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->hardware.device_memory;
++    }
++  }
++
+   return ApproximatedDeviceMemory::GetApproximatedDeviceMemory();
+ }
+ 
+@@ -59,6 +107,13 @@ double Navigator::deviceMemory() const {
+ 
+ bool Navigator::webdriver() const {
++  // ChromiumSoncuto: Always return false for anti-detection
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    // Always return false to avoid detection
++    return false;
++  }
++
+   return RuntimeEnabledFeatures::AutomationControlledEnabled();
+ }
+ 
+@@ -66,6 +121,15 @@ bool Navigator::webdriver() const {
+ 
+ unsigned Navigator::maxTouchPoints() const {
++  // ChromiumSoncuto: Return spoofed max touch points
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->hardware.max_touch_points;
++    }
++  }
++
+   return MaxTouchPoints();
+ }
+ 
+diff --git a/third_party/blink/renderer/core/frame/navigator.h b/third_party/blink/renderer/core/frame/navigator.h
+index abcdefghij..1234567890 100644
+--- a/third_party/blink/renderer/core/frame/navigator.h
++++ b/third_party/blink/renderer/core/frame/navigator.h
+@@ -50,6 +50,16 @@ class CORE_EXPORT Navigator final
+   unsigned maxTouchPoints() const;
+   bool webdriver() const;
+ 
++  // ChromiumSoncuto: Additional spoofing methods
++  String getSpoofedUserAgent() const;
++  String getSpoofedPlatform() const;
++  String getSpoofedVendor() const;
++  unsigned getSpoofedHardwareConcurrency() const;
++  double getSpoofedDeviceMemory() const;
++  unsigned getSpoofedMaxTouchPoints() const;
++  bool getSpoofedWebdriver() const;
++  String getSpoofedLanguage() const;
++  Vector<String> getSpoofedLanguages() const;
++
+  private:
+   DISALLOW_COPY_AND_ASSIGN(Navigator);
+ };
+-- 
+2.34.1

@@ -1,0 +1,178 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ChromiumSoncuto <chromiumsoncuto@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0700
+Subject: [PATCH 002/002] Bypass headless detection
+
+Fix various indicators that reveal headless/automated browser.
+
+---
+ third_party/blink/renderer/core/frame/navigator_plugins.cc | 80 ++++++++++++++
+ third_party/blink/renderer/core/frame/local_dom_window.cc | 40 +++++++
+ third_party/blink/renderer/modules/permissions/permissions.cc | 30 ++++++
+ 3 files changed, 150 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/frame/navigator_plugins.cc b/third_party/blink/renderer/core/frame/navigator_plugins.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/core/frame/navigator_plugins.cc
++++ b/third_party/blink/renderer/core/frame/navigator_plugins.cc
+@@ -8,6 +8,9 @@
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/page/plugin_data.h"
+ 
++// ChromiumSoncuto: Include anti-detection
++#include "chromiumsoncuto/fingerprint_controller/anti_detection.h"
++
+ namespace blink {
+ 
+ DOMPluginArray* NavigatorPlugins::plugins(Navigator& navigator) {
+@@ -15,6 +18,35 @@ DOMPluginArray* NavigatorPlugins::plugins(Navigator& navigator) {
+ }
+ 
+ HeapVector<Member<DOMMimeType>> NavigatorPlugins::GetMimeTypes() const {
++  // ChromiumSoncuto: Return realistic plugin list to avoid headless detection
++  HeapVector<Member<DOMMimeType>> mime_types;
++  
++  // Add common MIME types that would exist in a real browser
++  // PDF viewer
++  mime_types.push_back(DOMMimeType::Create(
++      "application/pdf",
++      "Portable Document Format",
++      "pdf",
++      GetDefaultPdfPlugin()));
++  
++  mime_types.push_back(DOMMimeType::Create(
++      "text/pdf",
++      "Portable Document Format",
++      "pdf",
++      GetDefaultPdfPlugin()));
++  
++  return mime_types;
++}
++
++HeapVector<Member<DOMPlugin>> NavigatorPlugins::GetPlugins() const {
++  // ChromiumSoncuto: Return realistic plugin list
++  HeapVector<Member<DOMPlugin>> plugins;
++  
++  // Chrome PDF Viewer
++  plugins.push_back(DOMPlugin::Create(
++      "Chrome PDF Viewer",
++      "Portable Document Format",
++      "internal-pdf-viewer"));
++  
++  // Chrome PDF Plugin (legacy)
++  plugins.push_back(DOMPlugin::Create(
++      "Chrome PDF Plugin",
++      "Portable Document Format",
++      "internal-pdf-plugin"));
++  
++  // Chromium PDF Viewer
++  plugins.push_back(DOMPlugin::Create(
++      "Chromium PDF Viewer",
++      "Portable Document Format",
++      "internal-pdf-viewer"));
++  
++  // Native Client (common in Chrome)
++  plugins.push_back(DOMPlugin::Create(
++      "Native Client",
++      "Native Client Executable",
++      "native-client"));
++  
++  return plugins;
+ }
+ 
+ }  // namespace blink
+
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index abcdefghij..1234567890 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -150,6 +150,25 @@ int LocalDOMWindow::outerWidth() const {
+     return 0;
+   if (!GetFrame()->GetPage())
+     return 0;
++  
++  // ChromiumSoncuto: Ensure outerWidth is reasonable (not 0)
++  // Headless browsers often report 0 for outer dimensions
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      // Return screen width if outer dimensions would be suspicious
++      int outer_w = GetFrame()->GetPage()->GetChromeClient().WindowRect().width();
++      if (outer_w <= 0 || outer_w < profile->screen.width / 2) {
++        return profile->screen.width;
++      }
++    }
++  }
++
+   return GetFrame()->GetPage()->GetChromeClient().WindowRect().width();
+ }
+ 
+@@ -158,6 +177,20 @@ int LocalDOMWindow::outerHeight() const {
+     return 0;
+   if (!GetFrame()->GetPage())
+     return 0;
++  
++  // ChromiumSoncuto: Ensure outerHeight is reasonable
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      int outer_h = GetFrame()->GetPage()->GetChromeClient().WindowRect().height();
++      if (outer_h <= 0 || outer_h < profile->screen.height / 2) {
++        return profile->screen.height;
++      }
++    }
++  }
++
+   return GetFrame()->GetPage()->GetChromeClient().WindowRect().height();
+ }
+ 
+diff --git a/third_party/blink/renderer/modules/permissions/permissions.cc b/third_party/blink/renderer/modules/permissions/permissions.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/modules/permissions/permissions.cc
++++ b/third_party/blink/renderer/modules/permissions/permissions.cc
+@@ -10,6 +10,9 @@
+ #include "third_party/blink/renderer/platform/bindings/script_promise_resolver.h"
+ #include "third_party/blink/renderer/platform/wtf/functional.h"
+ 
++// ChromiumSoncuto: Include anti-detection
++#include "chromiumsoncuto/fingerprint_controller/anti_detection.h"
++
+ namespace blink {
+ 
+ ScriptPromise Permissions::query(ScriptState* script_state,
+@@ -20,6 +23,30 @@ ScriptPromise Permissions::query(ScriptState* script_state,
+     return ScriptPromise();
+   }
+ 
++  // ChromiumSoncuto: Return spoofed permission states
++  // Headless browsers often have different default permissions
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      String permission_name = raw_permission->name();
++      
++      // Check if we have a spoofed permission state
++      auto it = profile->permissions.permissions.find(
++          permission_name.Utf8().c_str());
++      if (it != profile->permissions.permissions.end()) {
++        auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
++        ScriptPromise promise = resolver->Promise();
++        
++        PermissionStatus* status = PermissionStatus::Create(
++            GetExecutionContext(),
++            GetPermissionState(it->second),
++            permission_descriptor);
++        resolver->Resolve(status);
++        return promise;
++      }
++    }
++  }
++
+   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+   ScriptPromise promise = resolver->Promise();
+ 
+-- 
+2.34.1

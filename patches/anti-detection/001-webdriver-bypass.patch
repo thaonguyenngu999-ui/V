@@ -1,0 +1,144 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ChromiumSoncuto <chromiumsoncuto@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0700
+Subject: [PATCH 001/002] Bypass WebDriver detection
+
+Remove all traces of WebDriver/automation control from navigator and window.
+
+---
+ third_party/blink/renderer/core/frame/navigator.cc | 30 ++++++++++++++
+ third_party/blink/renderer/core/frame/local_dom_window.cc | 50 +++++++++++++++++++++
+ content/browser/devtools/devtools_instrumentation.cc | 25 +++++++++++
+ 3 files changed, 105 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -10,6 +10,9 @@
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ 
++// ChromiumSoncuto: Include anti-detection
++#include "chromiumsoncuto/fingerprint_controller/anti_detection.h"
++
+ namespace blink {
+ 
+ bool Navigator::webdriver() const {
++  // ChromiumSoncuto: Always return false to bypass webdriver detection
++  // This is the primary detection method used by most anti-bot systems
++  return false;
+-  return RuntimeEnabledFeatures::AutomationControlledEnabled();
+ }
+ 
+ }  // namespace blink
+
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index abcdefghij..1234567890 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -20,6 +20,9 @@
+ #include "third_party/blink/renderer/platform/bindings/v8_dom_wrapper.h"
+ #include "v8/include/v8.h"
+ 
++// ChromiumSoncuto: Include anti-detection
++#include "chromiumsoncuto/fingerprint_controller/anti_detection.h"
++
+ namespace blink {
+ 
+ void LocalDOMWindow::InitializeChromiumSoncutoStealth(v8::Local<v8::Context> context) {
++  // ChromiumSoncuto: Remove automation-related properties
++  v8::Isolate* isolate = context->GetIsolate();
++  v8::Local<v8::Object> global = context->Global();
++  
++  // Remove cdc_ variables (ChromeDriver markers)
++  v8::Local<v8::Array> property_names;
++  if (global->GetOwnPropertyNames(context).ToLocal(&property_names)) {
++    for (uint32_t i = 0; i < property_names->Length(); i++) {
++      v8::Local<v8::Value> key;
++      if (property_names->Get(context, i).ToLocal(&key)) {
++        v8::String::Utf8Value utf8_key(isolate, key);
++        std::string key_str(*utf8_key);
++        
++        // Remove ChromeDriver artifacts
++        if (key_str.find("cdc_") == 0 ||
++            key_str.find("$cdc_") == 0 ||
++            key_str.find("__webdriver") == 0 ||
++            key_str.find("__driver") == 0 ||
++            key_str.find("__selenium") == 0 ||
++            key_str.find("__fxdriver") == 0 ||
++            key_str.find("_phantom") == 0 ||
++            key_str.find("callPhantom") == 0 ||
++            key_str.find("_nightmare") == 0 ||
++            key_str == "domAutomation" ||
++            key_str == "domAutomationController") {
++          global->Delete(context, key).FromMaybe(false);
++        }
++      }
++    }
++  }
++  
++  // Ensure document.hidden reports correctly
++  // Ensure window.chrome exists and looks legitimate
++  EnsureWindowChrome(context);
++}
++
++void LocalDOMWindow::EnsureWindowChrome(v8::Local<v8::Context> context) {
++  v8::Isolate* isolate = context->GetIsolate();
++  v8::Local<v8::Object> global = context->Global();
++  
++  // Create window.chrome if it doesn't exist
++  v8::Local<v8::String> chrome_key = v8::String::NewFromUtf8Literal(isolate, "chrome");
++  v8::Local<v8::Value> chrome_value;
++  
++  if (!global->Get(context, chrome_key).ToLocal(&chrome_value) || 
++      chrome_value->IsUndefined()) {
++    v8::Local<v8::Object> chrome_obj = v8::Object::New(isolate);
++    
++    // Add chrome.runtime (empty object is fine)
++    v8::Local<v8::Object> runtime_obj = v8::Object::New(isolate);
++    chrome_obj->Set(context, 
++        v8::String::NewFromUtf8Literal(isolate, "runtime"),
++        runtime_obj).FromMaybe(false);
++    
++    // Add chrome.app
++    v8::Local<v8::Object> app_obj = v8::Object::New(isolate);
++    chrome_obj->Set(context,
++        v8::String::NewFromUtf8Literal(isolate, "app"),
++        app_obj).FromMaybe(false);
++    
++    global->Set(context, chrome_key, chrome_obj).FromMaybe(false);
++  }
++}
+ 
+ }  // namespace blink
+
+diff --git a/content/browser/devtools/devtools_instrumentation.cc b/content/browser/devtools/devtools_instrumentation.cc
+index 1234567890..abcdefghij 100644
+--- a/content/browser/devtools/devtools_instrumentation.cc
++++ b/content/browser/devtools/devtools_instrumentation.cc
+@@ -8,6 +8,9 @@
+ #include "content/browser/devtools/devtools_agent_host_impl.h"
+ #include "content/browser/renderer_host/render_frame_host_impl.h"
+ 
++// ChromiumSoncuto: Include anti-detection
++#include "chromiumsoncuto/fingerprint_controller/anti_detection.h"
++
+ namespace content {
+ namespace devtools_instrumentation {
+ 
+@@ -20,6 +23,12 @@ void ApplyNetworkRequestOverrides(FrameTreeNode* frame_tree_node,
+ }
+ 
+ bool IsWebDriverActiveForFrame(RenderFrameHostImpl* frame_host) {
++  // ChromiumSoncuto: Always return false to prevent detection
++  // This prevents the browser from setting automation-related flags
++  // that can be detected by anti-bot systems
++  return false;
++
++  // Original implementation (disabled)
+   if (!frame_host)
+     return false;
+   
+-- 
+2.34.1

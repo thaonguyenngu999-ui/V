@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "S Manage Fingerprint",
+  "version": "1.0.0",
+  "description": "Fingerprint protection for S Manage browser",
+  "permissions": [
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["loader.js", "inject.js", "advanced.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

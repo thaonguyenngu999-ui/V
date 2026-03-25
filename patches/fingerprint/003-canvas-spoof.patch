@@ -1,0 +1,164 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ChromiumSoncuto <chromiumsoncuto@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0700
+Subject: [PATCH 003/006] Canvas fingerprint noise injection
+
+Apply subtle, consistent noise to canvas operations to prevent fingerprinting
+while maintaining visual quality.
+
+---
+ third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc | 80 +++++++++++
+ third_party/blink/renderer/core/html/canvas/html_canvas_element.cc              | 65 +++++++++
+ 2 files changed, 145 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -10,6 +10,10 @@
+ #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h"
+ #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
+ 
++// ChromiumSoncuto: Include canvas spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/canvas_spoof.h"
++
+ namespace blink {
+ 
+ ImageData* BaseRenderingContext2D::getImageData(
+@@ -18,6 +22,9 @@ ImageData* BaseRenderingContext2D::getImageData(
+     int sw,
+     int sh,
+     ExceptionState& exception_state) {
++  
++  // ChromiumSoncuto: Get image data with noise applied
++  
+   if (!OriginClean()) {
+     exception_state.ThrowSecurityError("The canvas has been tainted by cross-origin data.");
+     return nullptr;
+@@ -35,6 +42,21 @@ ImageData* BaseRenderingContext2D::getImageData(
+     return nullptr;
+   }
+ 
++  // ChromiumSoncuto: Apply canvas noise if enabled
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->canvas.enabled) {
++      // Apply noise to the pixel data
++      uint8_t* data = image_data->data()->Data();
++      size_t length = image_data->data()->length();
++      
++      chromiumsoncuto::canvas::ApplyCanvasNoise(
++          data, sw, sh,
++          profile->canvas.noise_seed,
++          profile->canvas.noise_intensity);
++    }
++  }
++
+   return image_data;
+ }
+ 
+@@ -45,6 +67,31 @@ void BaseRenderingContext2D::putImageData(ImageData* image_data,
+     ExceptionState& exception_state) {
+   putImageData(image_data, dx, dy, 0, 0, image_data->width(), image_data->height(), exception_state);
+ }
++
++// ChromiumSoncuto: Helper function to generate consistent noise
++namespace {
++
++void ApplyNoiseToPixelData(uint8_t* data, int width, int height,
++                           uint64_t seed, double intensity) {
++  // Xorshift128+ PRNG for deterministic noise
++  uint64_t state0 = seed;
++  uint64_t state1 = seed ^ 0x5DEECE66DULL;
++  if (state0 == 0) state0 = 1;
++  if (state1 == 0) state1 = 1;
++  
++  for (int i = 0; i < width * height * 4; i += 4) {
++    // Generate noise for RGB channels only, preserve alpha
++    for (int c = 0; c < 3; c++) {
++      uint64_t s1 = state0;
++      const uint64_t s0 = state1;
++      state0 = s0;
++      s1 ^= s1 << 23;
++      state1 = s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26);
++      
++      double noise = ((state1 + s0) >> 11) * (1.0 / (1ULL << 53));
++      noise = (noise * 2.0 - 1.0) * intensity * 255.0;
++      
++      int value = static_cast<int>(data[i + c]) + static_cast<int>(noise);
++      data[i + c] = static_cast<uint8_t>(std::clamp(value, 0, 255));
++    }
++  }
++}
++
++}  // namespace
+ 
+ }  // namespace blink
+
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index abcdefghij..1234567890 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -15,6 +15,10 @@
+ #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
+ #include "third_party/skia/include/encode/SkPngEncoder.h"
+ 
++// ChromiumSoncuto: Include canvas spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/canvas_spoof.h"
++
+ namespace blink {
+ 
+ String HTMLCanvasElement::toDataURL(const String& mime_type,
+@@ -22,6 +26,9 @@ String HTMLCanvasElement::toDataURL(const String& mime_type,
+                                     ExceptionState& exception_state) const {
+   if (!OriginClean()) {
+     exception_state.ThrowSecurityError("Tainted canvases may not be exported.");
++    return String();
++  }
++
+   // Get the bitmap
+   scoped_refptr<StaticBitmapImage> image = Snapshot(kBackBuffer, kPreferNoAcceleration);
+   if (!image) {
+@@ -29,6 +36,35 @@ String HTMLCanvasElement::toDataURL(const String& mime_type,
+   }
+ 
+   SkBitmap bitmap;
++  if (!image->PaintImageForCurrentFrame().GetSkImageInfo().isEmpty()) {
++    image->PaintImageForCurrentFrame().readPixels(
++        bitmap.info(), bitmap.getPixels(), bitmap.rowBytes(), 0, 0);
++  }
++
++  // ChromiumSoncuto: Apply noise before encoding
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->canvas.enabled) {
++      // Create mutable copy if needed
++      SkBitmap mutableBitmap;
++      if (!bitmap.isNull()) {
++        mutableBitmap.allocPixels(bitmap.info());
++        bitmap.readPixels(mutableBitmap.info(), mutableBitmap.getPixels(),
++                          mutableBitmap.rowBytes(), 0, 0);
++        
++        // Apply noise
++        uint8_t* pixels = static_cast<uint8_t*>(mutableBitmap.getPixels());
++        int width = mutableBitmap.width();
++        int height = mutableBitmap.height();
++        
++        chromiumsoncuto::canvas::ApplyCanvasNoise(
++            pixels, width, height,
++            profile->canvas.noise_seed,
++            profile->canvas.noise_intensity);
++        
++        bitmap = std::move(mutableBitmap);
++      }
++    }
++  }
+ 
+   // Encode to data URL
+   // ... rest of implementation
+-- 
+2.34.1

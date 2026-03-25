@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ChromiumSoncuto <chromiumsoncuto@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0700
+Subject: [PATCH 006/006] Media devices enumeration spoofing
+
+Spoof MediaDevices.enumerateDevices() to return controlled device list.
+
+---
+ third_party/blink/renderer/modules/mediastream/media_devices.cc | 100 ++++++++++++++
+ 1 file changed, 100 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/mediastream/media_devices.cc b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/modules/mediastream/media_devices.cc
++++ b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+@@ -15,6 +15,10 @@
+ #include "third_party/blink/renderer/modules/mediastream/media_stream.h"
+ #include "third_party/blink/renderer/platform/bindings/script_promise_resolver.h"
+ 
++// ChromiumSoncuto: Include media devices spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/media_devices_spoof.h"
++
+ namespace blink {
+ 
+ ScriptPromise MediaDevices::enumerateDevices(ScriptState* script_state,
+@@ -25,6 +29,45 @@ ScriptPromise MediaDevices::enumerateDevices(ScriptState* script_state,
+     return ScriptPromise();
+   }
+ 
++  // ChromiumSoncuto: Return spoofed device list
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile && profile->media_devices.enumerate_devices_enabled) {
++      auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
++      ScriptPromise promise = resolver->Promise();
++      
++      HeapVector<Member<MediaDeviceInfo>> device_infos;
++      
++      for (const auto& device : profile->media_devices.devices) {
++        MediaDeviceInfo* info = MediaDeviceInfo::Create(
++            String::FromUTF8(device.device_id),
++            String::FromUTF8(device.label),
++            String::FromUTF8(device.group_id),
++            GetMediaDeviceKind(device.kind));
++        device_infos.push_back(info);
++      }
++      
++      resolver->Resolve(device_infos);
++      return promise;
++    }
++  }
++
+   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+   ScriptPromise promise = resolver->Promise();
+ 
+@@ -35,6 +78,25 @@ ScriptPromise MediaDevices::enumerateDevices(ScriptState* script_state,
+   return promise;
+ }
+ 
++// ChromiumSoncuto: Helper to convert string to MediaDeviceKind
++namespace {
++
++MediaDeviceInfo::MediaDeviceKind GetMediaDeviceKind(const std::string& kind) {
++  if (kind == "audioinput") {
++    return MediaDeviceInfo::MediaDeviceKind::kAudioInput;
++  } else if (kind == "audiooutput") {
++    return MediaDeviceInfo::MediaDeviceKind::kAudioOutput;
++  } else if (kind == "videoinput") {
++    return MediaDeviceInfo::MediaDeviceKind::kVideoInput;
++  }
++  return MediaDeviceInfo::MediaDeviceKind::kAudioInput;
++}
++
++}  // namespace
++
+ ScriptPromise MediaDevices::getUserMedia(ScriptState* script_state,
+                                          const MediaStreamConstraints* options,
+                                          ExceptionState& exception_state) {
+@@ -45,6 +107,32 @@ ScriptPromise MediaDevices::getUserMedia(ScriptState* script_state,
+     return ScriptPromise();
+   }
+ 
++  // ChromiumSoncuto: Translate device IDs in constraints
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      // Translate requested device IDs to spoofed IDs
++      auto& media_spoof = chromiumsoncuto::media::MediaDevicesSpoof::GetInstance();
++      
++      if (options->hasVideo() && options->video().IsMediaTrackConstraints()) {
++        const auto& video_constraints = options->video().GetAsMediaTrackConstraints();
++        if (video_constraints->hasDeviceId()) {
++          // Device ID translation happens in GetUserMediaSpoof
++        }
++      }
++      
++      if (options->hasAudio() && options->audio().IsMediaTrackConstraints()) {
++        const auto& audio_constraints = options->audio().GetAsMediaTrackConstraints();
++        if (audio_constraints->hasDeviceId()) {
++          // Device ID translation happens in GetUserMediaSpoof
++        }
++      }
++    }
++  }
++
+   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+   ScriptPromise promise = resolver->Promise();
+ 
+-- 
+2.34.1

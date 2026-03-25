@@ -1,0 +1,143 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ChromiumSoncuto <chromiumsoncuto@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0700
+Subject: [PATCH 002/006] Spoof screen properties
+
+Patch screen object to return spoofed values from fingerprint profile.
+
+---
+ third_party/blink/renderer/core/frame/screen.cc | 120 +++++++++++++++++++++++
+ third_party/blink/renderer/core/frame/screen.h  |   8 ++
+ 2 files changed, 128 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index 1234567890..abcdefghij 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -8,6 +8,9 @@
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/core/page/chrome_client.h"
+ 
++// ChromiumSoncuto: Include fingerprint controller
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++
+ namespace blink {
+ 
+ Screen::Screen(LocalDOMWindow* window, int64_t display_id)
+@@ -16,6 +19,15 @@ Screen::Screen(LocalDOMWindow* window, int64_t display_id)
+ Screen::~Screen() = default;
+ 
+ int Screen::width() const {
++  // ChromiumSoncuto: Return spoofed width
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->screen.width;
++    }
++  }
++
+   if (!DomWindow())
+     return 0;
+   return GetRect().width();
+@@ -23,6 +35,15 @@ int Screen::width() const {
+ }
+ 
+ int Screen::height() const {
++  // ChromiumSoncuto: Return spoofed height
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->screen.height;
++    }
++  }
++
+   if (!DomWindow())
+     return 0;
+   return GetRect().height();
+@@ -30,6 +51,15 @@ int Screen::height() const {
+ }
+ 
+ int Screen::availWidth() const {
++  // ChromiumSoncuto: Return spoofed availWidth
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->screen.avail_width;
++    }
++  }
++
+   if (!DomWindow())
+     return 0;
+   return GetAvailableRect().width();
+@@ -37,6 +67,15 @@ int Screen::availWidth() const {
+ }
+ 
+ int Screen::availHeight() const {
++  // ChromiumSoncuto: Return spoofed availHeight
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->screen.avail_height;
++    }
++  }
++
+   if (!DomWindow())
+     return 0;
+   return GetAvailableRect().height();
+@@ -44,6 +83,15 @@ int Screen::availHeight() const {
+ }
+ 
+ unsigned Screen::colorDepth() const {
++  // ChromiumSoncuto: Return spoofed colorDepth
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->screen.color_depth;
++    }
++  }
++
+   if (!DomWindow())
+     return 0;
+   return static_cast<unsigned>(GetColorDepth());
+@@ -51,6 +99,15 @@ unsigned Screen::colorDepth() const {
+ }
+ 
+ unsigned Screen::pixelDepth() const {
++  // ChromiumSoncuto: Return spoofed pixelDepth
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      return profile->screen.pixel_depth;
++    }
++  }
++
+   return colorDepth();
+ }
+ 
+diff --git a/third_party/blink/renderer/core/frame/screen.h b/third_party/blink/renderer/core/frame/screen.h
+index abcdefghij..1234567890 100644
+--- a/third_party/blink/renderer/core/frame/screen.h
++++ b/third_party/blink/renderer/core/frame/screen.h
+@@ -40,6 +40,14 @@ class CORE_EXPORT Screen final : public ScriptWrappable,
+   unsigned colorDepth() const;
+   unsigned pixelDepth() const;
+ 
++  // ChromiumSoncuto: Additional spoofing methods
++  int getSpoofedWidth() const;
++  int getSpoofedHeight() const;
++  int getSpoofedAvailWidth() const;
++  int getSpoofedAvailHeight() const;
++  unsigned getSpoofedColorDepth() const;
++  double getSpoofedDevicePixelRatio() const;
++
+  private:
+   gfx::Rect GetRect() const;
+   gfx::Rect GetAvailableRect() const;
+-- 
+2.34.1

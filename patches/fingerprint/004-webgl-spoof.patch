@@ -1,0 +1,175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ChromiumSoncuto <chromiumsoncuto@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0700
+Subject: [PATCH 004/006] WebGL fingerprint spoofing
+
+Spoof WebGL parameters and debug info to match fingerprint profile.
+
+---
+ gpu/command_buffer/service/gles2_cmd_decoder.cc | 150 +++++++++++++++++++++++
+ third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc | 100 ++++++++++++++++
+ 2 files changed, 250 insertions(+)
+
+diff --git a/gpu/command_buffer/service/gles2_cmd_decoder.cc b/gpu/command_buffer/service/gles2_cmd_decoder.cc
+index 1234567890..abcdefghij 100644
+--- a/gpu/command_buffer/service/gles2_cmd_decoder.cc
++++ b/gpu/command_buffer/service/gles2_cmd_decoder.cc
+@@ -30,6 +30,10 @@
+ #include "gpu/command_buffer/service/shader_manager.h"
+ #include "gpu/command_buffer/service/texture_manager.h"
+ 
++// ChromiumSoncuto: Include WebGL spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/webgl_spoof.h"
++
+ namespace gpu {
+ namespace gles2 {
+ 
+@@ -100,6 +104,30 @@ const char* GLES2DecoderImpl::GetStringForId(GLenum id) {
+     case GL_VERSION:
+       return GetVersionString();
+     case GL_SHADING_LANGUAGE_VERSION:
++      // ChromiumSoncuto: Return spoofed values
++      {
++        auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++        if (controller->IsInitialized()) {
++          const auto* profile = controller->GetProfile();
++          if (profile) {
++            switch (id) {
++              case GL_VENDOR:
++                return profile->webgl.vendor.c_str();
++              case GL_RENDERER:
++                return profile->webgl.renderer.c_str();
++              case GL_VERSION:
++                return profile->webgl.webgl_version.c_str();
++              case GL_SHADING_LANGUAGE_VERSION:
++                return profile->webgl.shading_language_version.c_str();
++            }
++          }
++        }
++      }
+       return GetShadingLanguageVersionString();
+     case GL_EXTENSIONS:
+       return GetExtensionsString();
+@@ -150,6 +178,35 @@ void GLES2DecoderImpl::DoGetIntegerv(GLenum pname,
+                                      GLint* params,
+                                      GLsizei params_size) {
+   DCHECK(googles);
++  
++  // ChromiumSoncuto: Return spoofed integer parameters
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      switch (pname) {
++        case GL_MAX_TEXTURE_SIZE:
++          *params = profile->webgl.max_texture_size;
++          return;
++        case GL_MAX_CUBE_MAP_TEXTURE_SIZE:
++          *params = profile->webgl.max_cube_map_texture_size;
++          return;
++        case GL_MAX_RENDERBUFFER_SIZE:
++          *params = profile->webgl.max_renderbuffer_size;
++          return;
++        case GL_MAX_VERTEX_ATTRIBS:
++          *params = profile->webgl.max_vertex_attribs;
++          return;
++        case GL_MAX_VERTEX_UNIFORM_VECTORS:
++          *params = profile->webgl.max_vertex_uniform_vectors;
++          return;
++        case GL_MAX_VARYING_VECTORS:
++          *params = profile->webgl.max_varying_vectors;
++          return;
++        case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
++          *params = profile->webgl.max_combined_texture_image_units;
++          return;
++        case GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS:
++          *params = profile->webgl.max_vertex_texture_image_units;
++          return;
++        case GL_MAX_TEXTURE_IMAGE_UNITS:
++          *params = profile->webgl.max_texture_image_units;
++          return;
++        case GL_MAX_FRAGMENT_UNIFORM_VECTORS:
++          *params = profile->webgl.max_fragment_uniform_vectors;
++          return;
++      }
++    }
++  }
++
+   switch (pname) {
+     case GL_MAX_TEXTURE_SIZE:
+       *params = caps_.max_texture_size;
+
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index abcdefghij..1234567890 100644
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -20,6 +20,10 @@
+ #include "third_party/blink/renderer/modules/webgl/webgl_debug_renderer_info.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ 
++// ChromiumSoncuto: Include WebGL spoof
++#include "chromiumsoncuto/fingerprint_controller/fingerprint_config.h"
++#include "chromiumsoncuto/fingerprint_controller/webgl_spoof.h"
++
+ namespace blink {
+ 
+ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+@@ -30,6 +34,50 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+     return ScriptValue::CreateNull(script_state->GetIsolate());
+   }
+ 
++  // ChromiumSoncuto: Return spoofed WebGL parameters
++  auto* controller = &chromiumsoncuto::FingerprintController::GetInstance();
++  if (controller->IsInitialized()) {
++    const auto* profile = controller->GetProfile();
++    if (profile) {
++      // Handle WEBGL_debug_renderer_info extension
++      switch (pname) {
++        case 0x9245:  // UNMASKED_VENDOR_WEBGL
++          return WebGLAny(script_state, 
++              String::FromUTF8(profile->webgl.unmasked_vendor));
++        case 0x9246:  // UNMASKED_RENDERER_WEBGL
++          return WebGLAny(script_state,
++              String::FromUTF8(profile->webgl.unmasked_renderer));
++        case GL_VENDOR:
++          return WebGLAny(script_state,
++              String::FromUTF8(profile->webgl.vendor));
++        case GL_RENDERER:
++          return WebGLAny(script_state,
++              String::FromUTF8(profile->webgl.renderer));
++        case GL_MAX_TEXTURE_SIZE:
++          return WebGLAny(script_state, profile->webgl.max_texture_size);
++        case GL_MAX_RENDERBUFFER_SIZE:
++          return WebGLAny(script_state, profile->webgl.max_renderbuffer_size);
++        case GL_MAX_VERTEX_ATTRIBS:
++          return WebGLAny(script_state, profile->webgl.max_vertex_attribs);
++        case GL_MAX_VERTEX_UNIFORM_VECTORS:
++          return WebGLAny(script_state, profile->webgl.max_vertex_uniform_vectors);
++        case GL_MAX_VARYING_VECTORS:
++          return WebGLAny(script_state, profile->webgl.max_varying_vectors);
++        case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
++          return WebGLAny(script_state, profile->webgl.max_combined_texture_image_units);
++        case GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS:
++          return WebGLAny(script_state, profile->webgl.max_vertex_texture_image_units);
++        case GL_MAX_TEXTURE_IMAGE_UNITS:
++          return WebGLAny(script_state, profile->webgl.max_texture_image_units);
++        case GL_MAX_FRAGMENT_UNIFORM_VECTORS:
++          return WebGLAny(script_state, profile->webgl.max_fragment_uniform_vectors);
++        case GL_ALIASED_LINE_WIDTH_RANGE:
++          return WebGLAny(script_state, DOMFloat32Array::Create(
++              {profile->webgl.aliased_line_width_range_min,
++               profile->webgl.aliased_line_width_range_max}));
++        case GL_ALIASED_POINT_SIZE_RANGE:
++          return WebGLAny(script_state, DOMFloat32Array::Create(
++              {profile->webgl.aliased_point_size_range_min,
++               profile->webgl.aliased_point_size_range_max}));
++      }
++    }
++  }
++
+   switch (pname) {
+     case GL_ACTIVE_TEXTURE:
+       return GetUnsignedIntParameter(script_state, pname);
+-- 
+2.34.1

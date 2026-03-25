@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local configs and secrets
+config.json
+manager/config.json
+manager/settings.json
+manager/proxy_catalog.json
+manager/credentials.json
+manager/cloud_token.pickle
+client_secret_*.json
+
+# Browser/runtime/build artifacts
+browser/
+dist/
+build/
+output/
+release_test/
+tmp_version_check/
+browser_upload.zip
+build_stdout.log
+build_stderr.log
+rcedit.exe
+version.res
+
+# Large upstream/source trees and tools
+depot_tools/
+src/
+ResourceHacker/
+
+# Local profile data
+profiles/
+
+# Manager build outputs
+manager/build/
+manager/dist/
+manager/installer_output/
+manager/icon_temp.exe
+
+# Temporary files
+tmp_chromium_local_changes.patch
+*.log
