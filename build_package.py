@@ -251,7 +251,12 @@ def build_exe():
     return True
 
 
-def package_release(include_browser: bool = True, release_name: str | None = None, folder_name: str | None = None):
+def package_release(
+    include_browser: bool = True,
+    release_name: str | None = None,
+    folder_name: str | None = None,
+    include_helpers: bool = False,
+):
     """Create final release package"""
     log_phase("Creating release package...")
 
@@ -268,15 +273,16 @@ def package_release(include_browser: bool = True, release_name: str | None = Non
         log_phase("Copying browser files into release package...")
         copytree_with_progress(BROWSER_DIR, release_dir / "browser", "Copy browser")
 
-    for filename in MANAGER_FILES:
-        src = MANAGER_DIR / filename
-        if src.exists():
-            shutil.copy(src, manager_dir)
+    if include_helpers:
+        for filename in MANAGER_FILES:
+            src = MANAGER_DIR / filename
+            if src.exists():
+                shutil.copy(src, manager_dir)
 
-    for filename in ROOT_HELPERS:
-        src = BASE_DIR / filename
-        if src.exists():
-            shutil.copy(src, release_dir)
+        for filename in ROOT_HELPERS:
+            src = BASE_DIR / filename
+            if src.exists():
+                shutil.copy(src, release_dir)
 
     root_exe = release_dir / "SManage.exe"
     preferred_exe = release_dir / "V Manage.exe"
