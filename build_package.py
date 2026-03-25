@@ -30,10 +30,12 @@ MANAGER_FILES = [
     "fingerprint_utils.py",
     "browser_launcher.py",
     "playwright_attach.py",
+    "runtime_manager.py",
 ]
 
 ROOT_HELPERS = [
     "build_release_with_progress.py",
+    "build_runtime_package.py",
     "launch_profile_for_playwright.py",
     "playwright_smoke_test.py",
 ]
@@ -177,12 +179,15 @@ def build_exe():
         "--add-data",
         f"{MANAGER_DIR / 'playwright_attach.py'};.",
         "--add-data",
+        f"{MANAGER_DIR / 'runtime_manager.py'};.",
+        "--add-data",
         f"{MANAGER_DIR / 'app_meta.py'};.",
         "--hidden-import=customtkinter",
         "--hidden-import=PIL",
         "--hidden-import=app_meta",
         "--hidden-import=fingerprint_utils",
         "--hidden-import=playwright_attach",
+        "--hidden-import=runtime_manager",
         "--collect-all=customtkinter",
         str(MANAGER_DIR / "gui_v3.py"),
     ]

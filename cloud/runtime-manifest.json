@@ -1,0 +1,10 @@
+{
+  "channel": "stable",
+  "browser_version": "146.0.7680.76",
+  "platform": "win-x64",
+  "archive_type": "zip",
+  "download_url": "https://github.com/thaonguyenngu999-ui/V/releases/download/runtime-146.0.7680.76/browser-win-x64.zip",
+  "sha256": "",
+  "size_bytes": 0,
+  "entry": "flat"
+}

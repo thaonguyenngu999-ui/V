@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.request
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -275,6 +276,97 @@ class ProfileManager:
             "geo_accuracy": profile.geo_accuracy,
         }
 
+    @staticmethod
+    def _language_for_country(country_code: str, fallback: str = "en-US") -> str:
+        mapping = {
+            "VN": "vi-VN",
+            "US": "en-US",
+            "GB": "en-GB",
+            "AU": "en-AU",
+            "TH": "th-TH",
+            "JP": "ja-JP",
+            "KR": "ko-KR",
+            "CN": "zh-CN",
+            "TW": "zh-TW",
+            "DE": "de-DE",
+            "FR": "fr-FR",
+            "ES": "es-ES",
+            "BR": "pt-BR",
+        }
+        return mapping.get((country_code or "").upper(), fallback or "en-US")
+
+    @staticmethod
+    def _fetch_proxy_exit_ip(proxy_url: str) -> str:
+        try:
+            import requests
+
+            response = requests.get(
+                "https://api.ipify.org?format=json",
+                proxies={"http": proxy_url, "https": proxy_url},
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return str(payload.get("ip", "")).strip()
+        except ImportError:
+            request = urllib.request.Request("https://api.ipify.org?format=json", headers={"User-Agent": "Mozilla/5.0"})
+            proxy_handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+            opener = urllib.request.build_opener(proxy_handler)
+            with opener.open(request, timeout=20) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                return str(payload.get("ip", "")).strip()
+
+    @staticmethod
+    def _fetch_ip_geo(ip: str) -> Dict:
+        if not ip:
+            return {}
+        try:
+            import requests
+
+            response = requests.get(
+                f"http://ip-api.com/json/{ip}?fields=status,message,country,countryCode,regionName,city,timezone,lat,lon,query",
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("status") != "success":
+                raise RuntimeError(payload.get("message", "Geo lookup failed"))
+            return payload
+        except ImportError:
+            with urllib.request.urlopen(
+                f"http://ip-api.com/json/{ip}?fields=status,message,country,countryCode,regionName,city,timezone,lat,lon,query",
+                timeout=20,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if payload.get("status") != "success":
+                    raise RuntimeError(payload.get("message", "Geo lookup failed"))
+                return payload
+
+    def sync_profile_runtime_context(self, profile: ProfileConfig) -> ProfileConfig:
+        proxy_url = self.build_proxy_url(profile)
+        if not proxy_url:
+            return profile
+        try:
+            exit_ip = self._fetch_proxy_exit_ip(proxy_url)
+            geo = self._fetch_ip_geo(exit_ip)
+        except Exception as exc:
+            print(f"[WARN] Proxy geo sync failed for {profile.name}: {exc}")
+            return profile
+
+        timezone_name = geo.get("timezone") or profile.timezone
+        country_code = geo.get("countryCode", "") or profile.geo_country_code
+        profile.timezone = timezone_name
+        profile.language = self._language_for_country(country_code, profile.language)
+        profile.geo_country = geo.get("country", "")
+        profile.geo_country_code = country_code
+        profile.geo_region = geo.get("regionName", "")
+        profile.geo_city = geo.get("city", "")
+        profile.geo_latitude = geo.get("lat")
+        profile.geo_longitude = geo.get("lon")
+        profile.geo_accuracy = getattr(profile, "geo_accuracy", 20) or 20
+        self._save_profile_config(profile)
+        return profile
+
     def build_proxy_url(self, profile: ProfileConfig) -> Optional[str]:
         """Build proxy URL if profile has proxy enabled"""
         if not profile.proxy_enabled or not profile.proxy_host:
@@ -302,6 +394,7 @@ class ProfileManager:
             print(f"[!] Profile not found: {profile_id}")
             return None
 
+        profile = self.sync_profile_runtime_context(profile)
         profile.last_used = datetime.now().isoformat()
         profile.user_agent = self._normalize_user_agent(profile.user_agent)
         self._save_profile_config(profile)

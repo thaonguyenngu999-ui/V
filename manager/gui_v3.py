@@ -39,6 +39,12 @@ try:
     from fingerprint import FingerprintGenerator
     from browser_launcher import BrowserLauncher
     from app_meta import APP_VERSION_LABEL
+    from runtime_manager import (
+        DEFAULT_RUNTIME_MANIFEST_URL,
+        download_and_install as download_runtime_package,
+        find_browser_path,
+        get_runtime_status,
+    )
     print("[DEBUG] Imports successful")
 except ImportError as e:
     print(f"[ERROR] Import failed: {e}")
@@ -57,6 +63,7 @@ except ImportError as e:
     fingerprint_mod = load_module("fingerprint", os.path.join(APP_PATH, "fingerprint.py"))
     browser_launcher_mod = load_module("browser_launcher", os.path.join(APP_PATH, "browser_launcher.py"))
     app_meta_mod = load_module("app_meta", os.path.join(APP_PATH, "app_meta.py"))
+    runtime_manager_mod = load_module("runtime_manager", os.path.join(APP_PATH, "runtime_manager.py"))
     
     if profiles_mod:
         ProfileManager = profiles_mod.ProfileManager
@@ -67,6 +74,11 @@ except ImportError as e:
         BrowserLauncher = browser_launcher_mod.BrowserLauncher
     if app_meta_mod:
         APP_VERSION_LABEL = app_meta_mod.APP_VERSION_LABEL
+    if runtime_manager_mod:
+        DEFAULT_RUNTIME_MANIFEST_URL = runtime_manager_mod.DEFAULT_RUNTIME_MANIFEST_URL
+        download_runtime_package = runtime_manager_mod.download_and_install
+        find_browser_path = runtime_manager_mod.find_browser_path
+        get_runtime_status = runtime_manager_mod.get_runtime_status
     print("[DEBUG] Fallback imports loaded")
 
 # Cloud Sync
@@ -1325,39 +1337,17 @@ class MainApp(ctk.CTk):
         super().__init__()
         
         self.profiles_path = profiles_path
-        
-        # Find browser path - check multiple locations
-        browser_locations = [
-            os.path.join(APP_PATH, "browser", "chrome.exe"),  # Same folder as exe
-            os.path.join(os.path.dirname(APP_PATH), "browser", "chrome.exe"),  # Parent folder (manager)
-            os.path.join(os.path.dirname(os.path.dirname(APP_PATH)), "browser", "chrome.exe"),  # 2 levels up (ChromiumSoncuto)
-            r"F:\ChromiumSoncuto\browser\chrome.exe",  # Hardcoded fallback for dev
-        ]
-        
-        print(f"[DEBUG] Looking for browser in:")
-        for loc in browser_locations:
-            abs_loc = os.path.abspath(loc)
-            exists = os.path.exists(abs_loc)
-            print(f"  - {abs_loc} -> {exists}")
-        
-        self.browser_path = None
-        for loc in browser_locations:
-            abs_loc = os.path.abspath(loc)
-            if os.path.exists(abs_loc):
-                self.browser_path = abs_loc
-                print(f"[DEBUG] Found browser at: {self.browser_path}")
-                break
-        
+
+        settings = load_settings()
+        configured_browser = settings.get("browser_path", "")
+        self.browser_path = find_browser_path(APP_PATH, configured_browser)
+        print(f"[DEBUG] Runtime browser path = {self.browser_path}")
         if not self.browser_path:
-            # Show dialog to let user select browser
-            from tkinter import filedialog as fd
-            self.browser_path = fd.askopenfilename(
-                title="Select chrome.exe",
-                filetypes=[("Chrome", "chrome.exe"), ("All files", "*.*")]
+            messagebox.showerror(
+                "Browser Runtime Missing",
+                "Browser runtime is not installed yet.\nOpen setup again and download the runtime package.",
             )
-            if not self.browser_path:
-                messagebox.showerror("Error", f"Chrome not found!\nLooked in:\n" + "\n".join([os.path.abspath(l) for l in browser_locations]))
-                self.browser_path = browser_locations[0]
+            self.browser_path = configured_browser or os.path.join(os.path.dirname(APP_PATH), "browser", "chrome.exe")
         
         # Create config for ProfileManager
         config_path = os.path.join(APP_PATH, "config.json")
@@ -2565,8 +2555,9 @@ def _mainapp_launch(self, pid):
             print(f"[DEBUG] Browser exists: {os.path.exists(self.browser_path)}")
 
             launcher = BrowserLauncher(self.browser_path)
-            fingerprint = self.manager.build_fingerprint(profile)
-            proxy = self.manager.build_proxy_url(profile)
+            launch_profile = self.manager.sync_profile_runtime_context(profile)
+            fingerprint = self.manager.build_fingerprint(launch_profile)
+            proxy = self.manager.build_proxy_url(launch_profile)
 
             user_data = str(self.manager.profiles_dir / f"profile_{pid}" / "UserData")
             print(f"[DEBUG] User data: {user_data}")
@@ -2579,12 +2570,12 @@ def _mainapp_launch(self, pid):
             )
             self.running[pid] = process
 
-            profile.last_used = datetime.now().isoformat()
-            profile.user_agent = fingerprint.get("user_agent", profile.user_agent)
-            self.manager._save_profile_config(profile)
+            launch_profile.last_used = datetime.now().isoformat()
+            launch_profile.user_agent = fingerprint.get("user_agent", launch_profile.user_agent)
+            self.manager._save_profile_config(launch_profile)
 
             self.after(0, self._refresh)
-            self.after(0, lambda: self.status.configure(text=f"Running {profile.name}"))
+            self.after(0, lambda: self.status.configure(text=f"Running {launch_profile.name}"))
         except Exception as exc:
             import traceback
 
@@ -5144,6 +5135,252 @@ ProfileDialog._apply_proxy_geo = _dialog_apply_proxy_geo
 ProfileDialog._test_proxy = _dialog_test_proxy_health_v2
 ProfileDialog._reload_saved_proxy_choices = _dialog_reload_saved_proxy_choices_ranked
 ProfileDialog._apply_saved_proxy = _dialog_apply_saved_proxy_ranked_v2
+
+
+def _startup_set_progress(self, phase: str, current: int, total: int, message: str):
+    progress_value = 0.0
+    if total and total > 0:
+        progress_value = max(0.0, min(1.0, current / total))
+    elif phase in {"prepare", "done"}:
+        progress_value = 1.0 if phase == "done" else 0.08
+    self.runtime_progress.set(progress_value)
+    self.runtime_status_body.configure(text=message)
+
+
+def _startup_refresh_runtime_status(self):
+    manifest_url = self.manifest_entry.get().strip() if hasattr(self, "manifest_entry") else ""
+    status = get_runtime_status(APP_PATH, manifest_url, self.settings.get("browser_path", ""))
+    self.runtime_status = status
+
+    installed = status.get("installed")
+    version = status.get("installed_version") or "unknown"
+    remote_version = status.get("manifest_version") or "unknown"
+    error = status.get("error", "")
+
+    if installed and status.get("update_available"):
+        title = "Runtime installed • update available"
+        body = f"Installed {version}. Cloud has {remote_version}. Browser can be updated with one click."
+        button_text = "Update Runtime"
+        button_color = COLORS["warning"]
+    elif installed:
+        title = "Runtime installed"
+        body = f"Browser runtime is ready at {status.get('browser_path', '')}"
+        button_text = "Reinstall Runtime"
+        button_color = COLORS["info"]
+    else:
+        title = "Runtime missing"
+        body = "Browser runtime is not installed yet. Tool can download it from the manifest source."
+        button_text = "Download Runtime"
+        button_color = COLORS["accent"]
+
+    if error:
+        body = f"{body}\nManifest check: {error}"
+
+    self.runtime_status_title.configure(text=title)
+    self.runtime_status_body.configure(text=body)
+    self.download_btn.configure(text=button_text, fg_color=button_color)
+
+
+def _startup_finalize_continue(self, path: str):
+    self.settings["profiles_path"] = path
+    browser_path = find_browser_path(APP_PATH, self.settings.get("browser_path", ""))
+    if browser_path:
+        self.settings["browser_path"] = browser_path
+    self.settings["runtime_manifest_url"] = self.manifest_entry.get().strip()
+    save_settings(self.settings)
+    self.profiles_path = path
+    self.destroy()
+
+
+def _startup_download_runtime(self, auto_continue: bool = False):
+    manifest_url = self.manifest_entry.get().strip()
+    if not manifest_url:
+        messagebox.showerror("Missing Manifest", "Enter a runtime manifest URL first.")
+        return
+    if getattr(self, "_runtime_busy", False):
+        return
+
+    target_path = self.path_entry.get().strip()
+    self._pending_continue_path = target_path if auto_continue else ""
+    self._runtime_busy = True
+    self.download_btn.configure(state="disabled")
+    self.check_btn.configure(state="disabled")
+    self.continue_btn.configure(state="disabled")
+    self.settings["runtime_manifest_url"] = manifest_url
+    save_settings(self.settings)
+
+    def progress(phase, current, total, message):
+        self.after(0, lambda p=phase, c=current, t=total, m=message: _startup_set_progress(self, p, c, t, m))
+
+    def worker():
+        try:
+            info = download_runtime_package(
+                APP_PATH,
+                manifest_url,
+                self.settings.get("browser_path", ""),
+                progress=progress,
+            )
+            self.settings["browser_path"] = info.get("browser_path", "")
+            save_settings(self.settings)
+            def done():
+                self._runtime_busy = False
+                self.download_btn.configure(state="normal")
+                self.check_btn.configure(state="normal")
+                self.continue_btn.configure(state="normal")
+                self._startup_refresh_runtime_status()
+                self.status_line.configure(text="Browser runtime downloaded and installed.")
+                if self._pending_continue_path:
+                    _startup_finalize_continue(self, self._pending_continue_path)
+            self.after(0, done)
+        except Exception as exc:
+            def failed():
+                self._runtime_busy = False
+                self.download_btn.configure(state="normal")
+                self.check_btn.configure(state="normal")
+                self.continue_btn.configure(state="normal")
+                self.runtime_progress.set(0)
+                self.runtime_status_body.configure(text=f"Runtime install failed: {exc}")
+                self.status_line.configure(text="Runtime download failed.")
+            self.after(0, failed)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _startup_browse_manifest(self):
+    filename = filedialog.askopenfilename(
+        title="Select Runtime Manifest",
+        filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+    )
+    if filename:
+        self.manifest_entry.delete(0, tk.END)
+        self.manifest_entry.insert(0, filename)
+        self._startup_refresh_runtime_status()
+
+
+def _startup_create_widgets_v2(self):
+    self.geometry("760x520")
+    self.resizable(False, False)
+    self.configure(fg_color=COLORS["bg_dark"])
+    for child in self.winfo_children():
+        child.destroy()
+
+    shell = ctk.CTkFrame(self, fg_color=COLORS["bg_panel"], corner_radius=18, border_width=1, border_color=COLORS["border"])
+    shell.pack(fill="both", expand=True, padx=20, pady=20)
+
+    head = ctk.CTkFrame(shell, fg_color="transparent")
+    head.pack(fill="x", padx=24, pady=(22, 14))
+    ctk.CTkLabel(head, text="S Manage Setup", font=ctk.CTkFont(size=30, weight="bold")).pack(anchor="w")
+    ctk.CTkLabel(
+        head,
+        text="Tool only stores profiles locally. Browser runtime can live on cloud and is downloaded on demand.",
+        font=ctk.CTkFont(size=12),
+        text_color=COLORS["text_muted"],
+    ).pack(anchor="w", pady=(4, 0))
+
+    grid = ctk.CTkFrame(shell, fg_color="transparent")
+    grid.pack(fill="both", expand=True, padx=24, pady=(0, 16))
+    grid.grid_columnconfigure(0, weight=7)
+    grid.grid_columnconfigure(1, weight=6)
+
+    left = ctk.CTkFrame(grid, fg_color=COLORS["bg_card"], corner_radius=16, border_width=1, border_color=COLORS["border"])
+    left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+    right = ctk.CTkFrame(grid, fg_color=COLORS["bg_card"], corner_radius=16, border_width=1, border_color=COLORS["border"])
+    right.grid(row=0, column=1, sticky="nsew")
+
+    ctk.CTkLabel(left, text="Profile Storage", font=ctk.CTkFont(size=14, weight="bold"), text_color=COLORS["text_muted"]).pack(anchor="w", padx=18, pady=(16, 8))
+    ctk.CTkLabel(left, text="Profiles folder", font=ctk.CTkFont(size=13)).pack(anchor="w", padx=18)
+    entry_row = ctk.CTkFrame(left, fg_color="transparent")
+    entry_row.pack(fill="x", padx=18, pady=(10, 8))
+    self.path_entry = ctk.CTkEntry(entry_row, height=40)
+    self.path_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+    self.path_entry.insert(0, self.settings.get("profiles_path", ""))
+    ctk.CTkButton(entry_row, text="Browse", width=92, height=40, fg_color=COLORS["info"], hover_color=COLORS["info_hover"], command=self._browse_folder).pack(side="left")
+    ctk.CTkLabel(
+        left,
+        text="Each profile keeps separate cookies, cache and user data in this folder.",
+        font=ctk.CTkFont(size=11),
+        text_color=COLORS["text_muted"],
+        justify="left",
+    ).pack(anchor="w", padx=18, pady=(4, 0))
+
+    ctk.CTkLabel(right, text="Browser Runtime", font=ctk.CTkFont(size=14, weight="bold"), text_color=COLORS["text_muted"]).pack(anchor="w", padx=18, pady=(16, 8))
+    ctk.CTkLabel(right, text="Manifest URL", font=ctk.CTkFont(size=13)).pack(anchor="w", padx=18)
+    manifest_row = ctk.CTkFrame(right, fg_color="transparent")
+    manifest_row.pack(fill="x", padx=18, pady=(10, 8))
+    self.manifest_entry = ctk.CTkEntry(manifest_row, height=40)
+    self.manifest_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+    self.manifest_entry.insert(0, self.settings.get("runtime_manifest_url", DEFAULT_RUNTIME_MANIFEST_URL))
+    ctk.CTkButton(manifest_row, text="File", width=70, height=40, fg_color="#233446", hover_color="#2c4258", command=self._browse_manifest).pack(side="left")
+
+    status_card = ctk.CTkFrame(right, fg_color="#18222e", corner_radius=12, border_width=1, border_color=COLORS["border"])
+    status_card.pack(fill="x", padx=18, pady=(8, 12))
+    self.runtime_status_title = ctk.CTkLabel(status_card, text="Checking runtime...", font=ctk.CTkFont(size=15, weight="bold"))
+    self.runtime_status_title.pack(anchor="w", padx=14, pady=(12, 4))
+    self.runtime_status_body = ctk.CTkLabel(status_card, text="", justify="left", wraplength=260, font=ctk.CTkFont(size=11), text_color=COLORS["text_muted"])
+    self.runtime_status_body.pack(anchor="w", padx=14, pady=(0, 12))
+
+    self.runtime_progress = ctk.CTkProgressBar(right, height=10, progress_color=COLORS["accent"])
+    self.runtime_progress.pack(fill="x", padx=18, pady=(0, 10))
+    self.runtime_progress.set(0)
+
+    btn_row = ctk.CTkFrame(right, fg_color="transparent")
+    btn_row.pack(fill="x", padx=18)
+    self.check_btn = ctk.CTkButton(btn_row, text="Check Cloud Runtime", height=38, fg_color="#223244", hover_color="#2e465f", command=self._startup_refresh_runtime_status)
+    self.check_btn.pack(side="left")
+    self.download_btn = ctk.CTkButton(btn_row, text="Download Runtime", height=38, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], command=self._download_runtime)
+    self.download_btn.pack(side="left", padx=(8, 0))
+
+    self.status_line = ctk.CTkLabel(shell, text="Setup waits for a valid browser runtime before entering the manager.", font=ctk.CTkFont(size=11), text_color=COLORS["text_muted"])
+    self.status_line.pack(fill="x", padx=24, pady=(0, 12))
+
+    footer = ctk.CTkFrame(shell, fg_color="transparent")
+    footer.pack(fill="x", padx=24, pady=(0, 20))
+    ctk.CTkButton(footer, text="Exit", width=96, height=42, fg_color="#223244", hover_color="#2e465f", command=self.destroy).pack(side="right")
+    self.continue_btn = ctk.CTkButton(footer, text="Continue", width=138, height=42, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], command=self._continue)
+    self.continue_btn.pack(side="right", padx=(0, 10))
+
+    self._runtime_busy = False
+    self._pending_continue_path = ""
+    self._startup_refresh_runtime_status()
+
+
+def _startup_continue_v2(self):
+    path = self.path_entry.get().strip()
+    if not path:
+        messagebox.showerror("Error", "Please select a folder for profiles storage.")
+        return
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception as exc:
+        messagebox.showerror("Error", f"Cannot create folder: {exc}")
+        return
+
+    self.settings["profiles_path"] = path
+    self.settings["runtime_manifest_url"] = self.manifest_entry.get().strip()
+    save_settings(self.settings)
+
+    browser_path = find_browser_path(APP_PATH, self.settings.get("browser_path", ""))
+    if browser_path:
+        self.settings["browser_path"] = browser_path
+        save_settings(self.settings)
+        _startup_finalize_continue(self, path)
+        return
+
+    if not self.manifest_entry.get().strip():
+        messagebox.showerror("Browser Runtime Missing", "Browser runtime is not installed and no manifest URL is configured.")
+        return
+
+    self.status_line.configure(text="Runtime missing. Downloading it now before opening the manager.")
+    _startup_download_runtime(self, auto_continue=True)
+
+
+StartupDialog._startup_set_progress = _startup_set_progress
+StartupDialog._startup_refresh_runtime_status = _startup_refresh_runtime_status
+StartupDialog._startup_finalize_continue = _startup_finalize_continue
+StartupDialog._download_runtime = _startup_download_runtime
+StartupDialog._browse_manifest = _startup_browse_manifest
+StartupDialog._create_widgets = _startup_create_widgets_v2
+StartupDialog._continue = _startup_continue_v2
 
 
 def main():
