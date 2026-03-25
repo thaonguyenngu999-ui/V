@@ -4,7 +4,7 @@
   "platform": "win-x64",
   "archive_type": "zip",
   "download_url": "https://github.com/thaonguyenngu999-ui/V/releases/download/runtime-146.0.7680.76/browser-win-x64.zip",
-  "sha256": "",
-  "size_bytes": 0,
+  "sha256": "db9e4557dbe7748fe442a683e121943254abda4ac1e52811bbc7a3a92a7021aa",
+  "size_bytes": 256957155,
   "entry": "flat"
 }
