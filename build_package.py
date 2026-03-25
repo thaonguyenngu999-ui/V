@@ -256,6 +256,7 @@ def package_release(include_browser: bool = True, release_name: str | None = Non
     log_phase("Creating release package...")
 
     release_dir = OUTPUT_DIR / (folder_name or "SManage-Release")
+    remove_output_path(release_dir)
     release_dir.mkdir(exist_ok=True)
 
     exe_dir = OUTPUT_DIR / "SManage"
