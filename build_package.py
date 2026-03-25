@@ -103,6 +103,33 @@ def copytree_with_progress(src: Path, dst: Path, label: str):
             last_percent = percent
 
 
+def copy_dir_contents_with_progress(src: Path, dst: Path, label: str):
+    total_files, total_bytes = summarize_tree(src)
+    copied_files = 0
+    copied_bytes = 0
+    last_percent = -1
+
+    dst.mkdir(parents=True, exist_ok=True)
+    for path in sorted(src.rglob("*")):
+        target = dst / path.relative_to(src)
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        copied_files += 1
+        copied_bytes += path.stat().st_size
+
+        percent = int((copied_bytes / total_bytes) * 100) if total_bytes else 100
+        if percent != last_percent and (percent % 5 == 0 or copied_files == total_files):
+            log_phase(
+                f"{label}: {percent:3d}% ({copied_files}/{total_files} files, "
+                f"{format_bytes(copied_bytes)}/{format_bytes(total_bytes)})"
+            )
+            last_percent = percent
+
+
 def zip_directory_with_progress(base_dir: Path, source_dir: Path, zip_path: Path):
     files = [path for path in sorted(source_dir.rglob("*")) if path.is_file()]
     total_files = len(files)
@@ -232,15 +259,14 @@ def package_release(include_browser: bool = True, release_name: str | None = Non
     release_dir.mkdir(exist_ok=True)
 
     exe_dir = OUTPUT_DIR / "SManage"
+    manager_dir = release_dir
     if exe_dir.exists():
-        copytree_with_progress(exe_dir, release_dir / "manager", "Copy EXE")
+        copy_dir_contents_with_progress(exe_dir, release_dir, "Copy EXE")
 
     if include_browser and BROWSER_DIR.exists():
         log_phase("Copying browser files into release package...")
         copytree_with_progress(BROWSER_DIR, release_dir / "browser", "Copy browser")
 
-    manager_dir = release_dir / "manager"
-    manager_dir.mkdir(exist_ok=True)
     for filename in MANAGER_FILES:
         src = MANAGER_DIR / filename
         if src.exists():
@@ -251,11 +277,17 @@ def package_release(include_browser: bool = True, release_name: str | None = Non
         if src.exists():
             shutil.copy(src, release_dir)
 
-    launcher = """@echo off
-cd /d "%~dp0manager"
-start SManage.exe
+    root_exe = release_dir / "SManage.exe"
+    preferred_exe = release_dir / "V Manage.exe"
+    if root_exe.exists():
+        shutil.copy2(root_exe, preferred_exe)
+
+    launcher_target = "V Manage.exe" if preferred_exe.exists() else "SManage.exe"
+    launcher = f"""@echo off
+cd /d "%~dp0"
+start "" "{launcher_target}"
 """
-    (release_dir / "Start SManage.bat").write_text(launcher, encoding="utf-8")
+    (release_dir / "Start V Manage.bat").write_text(launcher, encoding="utf-8")
 
     runtime_note = (
         "Browser runtime is bundled locally in the browser folder."
@@ -266,9 +298,10 @@ start SManage.exe
     readme = f"""# {APP_NAME} - Antidetect Browser Manager
 
 ## Quick Start
-1. Run "Start SManage.bat"
+1. Run "V Manage.exe"
 2. Select a folder to store profiles
-3. Create profiles and start browsing
+3. If browser runtime is missing, it downloads once automatically
+4. Create profiles and start browsing
 
 ## Features
 - Unique fingerprint per profile (GPU, CPU, RAM, Screen, Timezone)

@@ -133,6 +133,34 @@ def save_settings(settings: dict):
         json.dump(settings, f, indent=2)
 
 
+def create_desktop_shortcut(exe_path: str, shortcut_name: str = "V Manage") -> bool:
+    if not exe_path or not os.path.exists(exe_path):
+        return False
+    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+    shortcut_path = os.path.join(desktop, f"{shortcut_name}.lnk")
+    target = exe_path.replace("'", "''")
+    shortcut = shortcut_path.replace("'", "''")
+    workdir = os.path.dirname(exe_path).replace("'", "''")
+    script = (
+        "$shell = New-Object -ComObject WScript.Shell;"
+        f"$shortcut = $shell.CreateShortcut('{shortcut}');"
+        f"$shortcut.TargetPath = '{target}';"
+        f"$shortcut.WorkingDirectory = '{workdir}';"
+        "$shortcut.Save()"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return True
+    except Exception as exc:
+        print(f"[WARN] Failed to create desktop shortcut: {exc}")
+        return False
+
+
 def load_proxy_catalog() -> List[Dict]:
     if not os.path.exists(PROXY_CATALOG_FILE):
         return []
@@ -5198,6 +5226,12 @@ def _startup_finalize_continue(self, path: str):
         self.settings["browser_path"] = browser_path
     self.settings["runtime_manifest_url"] = self.manifest_entry.get().strip()
     save_settings(self.settings)
+    current_exe = sys.executable if getattr(sys, "frozen", False) else ""
+    if current_exe:
+        created = create_desktop_shortcut(current_exe)
+        if created:
+            self.settings["desktop_shortcut"] = current_exe
+            save_settings(self.settings)
     self.profiles_path = path
     self.destroy()
 
